@@ -117,7 +117,7 @@ def train(sess, env, actor, critic, noise, reward, discrete, action_bound):
     for i in range(MAX_EPISODES):
         env.ResetWorld()
         env.GenerateTargetPoint()
-        print 'Target: (%.4f, %.4f)' % (env.target_point[0], env.target_point[1])
+        print('Target: (%.4f, %.4f)' % (env.target_point[0], env.target_point[1]))
         target_distance = copy.deepcopy(env.distance)
         ep_reward = 0.
         ep_ave_max_q = 0.
@@ -250,9 +250,9 @@ def train(sess, env, actor, critic, noise, reward, discrete, action_bound):
         if i > 0 and i % 1000 == 0 :
             saver.save(sess, 'saved_networks/' + GAME + '-dqn', global_step = i) 
 
-        print '| Reward: %.2f' % ep_reward, " | Episode:", i, \
+        print('| Reward: %.2f' % ep_reward, " | Episode:", i, \
         '| Qmax: %.4f' % (ep_ave_max_q / float(j)), \
-        " | LoopTime: %.4f" % (np.mean(loop_time_buf)), " | Step:", j-1, '\n'
+        " | LoopTime: %.4f" % (np.mean(loop_time_buf)), " | Step:", j-1, '\n')
             
 
 
