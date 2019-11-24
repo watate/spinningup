@@ -186,6 +186,7 @@ class Logger:
                 self.log('Warning: could not pickle state_dict.', color='red')
             if hasattr(self, 'tf_saver_elements'):
                 self._tf_simple_save(itr)
+                
 
     def setup_tf_saver(self, sess, inputs, outputs):
         """
@@ -223,7 +224,8 @@ class Logger:
                 # simple_save refuses to be useful if fpath already exists,
                 # so just delete fpath if it's there.
                 shutil.rmtree(fpath)
-            tf.saved_model.simple_save(export_dir=fpath, **self.tf_saver_elements)
+            
+            tf.compat.v1.saved_model.simple_save(export_dir=fpath, **self.tf_saver_elements)
             joblib.dump(self.tf_saver_info, osp.join(fpath, 'model_info.pkl'))
     
     def dump_tabular(self):
@@ -328,7 +330,8 @@ class EpochLogger(Logger):
                 super().log_tabular('Min'+key, stats[2])
         self.epoch_dict[key] = []
 
-    def get_stats(self, key):
+    # I modified this to include argument with_min_and_max
+    def get_stats(self, key, with_min_and_max=False):
         """
         Lets an algorithm ask the logger for mean/std/min/max of a diagnostic.
         """

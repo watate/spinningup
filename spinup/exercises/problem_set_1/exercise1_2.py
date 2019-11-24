@@ -38,7 +38,38 @@ def mlp(x, hidden_sizes=(32,), activation=tf.tanh, output_activation=None):
     #   YOUR CODE HERE    #
     #                     #
     #######################
-    pass
+
+    #New code (after referring to answers)
+    for h in hidden_sizes[:-1]:
+        x = tf.layers.dense(x, units=h, activation=activation)
+    return tf.layers.dense(x, units=hidden_sizes[-1], activation=output_activation)
+
+    #Old code
+    '''
+    #Number of columns = number of inputs
+    input_layer_size = np.shape(x)[0]
+    
+    #Initialize weights and bias
+    W1 = np.random.randn(hidden_sizes[0], input_layer_size) * 0.01
+    b1 = np.zeros((hidden_sizes[0], 1))
+    W2 = np.random.randn(np.shape(x)[1], hidden_sizes[0]) * 0.01
+    b2 = np.zeros((np.shape(x)[1], 1))
+
+    #Build graph
+    layer_1 = tf.placeholder(tf.float32, shape=(hidden_sizes[0],))
+
+    #Hidden layer
+    layer_1 = tf.add(tf.matmul(W1, x), b1)
+    layer_1 = activation(layer_1)
+
+    #Output layer
+    out_layer = tf.add(tf.matmul(W2, layer_1), b2)
+    if output_activation == None:
+        return out_layer
+    else:
+        out_layer = output_activation(out_layer)
+        return out_layer
+    '''
 
 def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, action_space):
     """
@@ -77,9 +108,20 @@ def mlp_gaussian_policy(x, a, hidden_sizes, activation, output_activation, actio
     #   YOUR CODE HERE    #
     #                     #
     #######################
-    # mu = 
-    # log_std = 
-    # pi = 
+    #New code
+    #get dimensions of actions
+    act_dim = a.shape[-1]
+    mu = mlp(x, list(hidden_sizes)+[act_dim], activation, output_activation)
+    log_std = tf.get_variable(name="log_std", initializer=-0.5*np.ones(shape=act_dim, dtype=np.float32))
+    std = tf.exp(log_std)
+    pi = mu + tf.random_normal(tf.shape(mu)) * std
+
+    #Old code
+    '''
+    mu, var = tf.nn.moments(a, axes=[1, np.shape(a)[1]])
+    log_std = tf.Variable(-0.5, shape=tf.shape(a))
+    pi = exercise1_1.gaussian_likelihood(a, mu, log_std)
+    '''
 
     logp = exercise1_1.gaussian_likelihood(a, mu, log_std)
     logp_pi = exercise1_1.gaussian_likelihood(pi, mu, log_std)

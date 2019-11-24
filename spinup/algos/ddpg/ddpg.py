@@ -5,6 +5,7 @@ import time
 from spinup.algos.ddpg import core
 from spinup.algos.ddpg.core import get_vars
 from spinup.utils.logx import EpochLogger
+import os.path as osp, time, atexit, os
 
 
 class ReplayBuffer:
@@ -45,7 +46,8 @@ Deep Deterministic Policy Gradient (DDPG)
 def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0, 
          steps_per_epoch=5000, epochs=100, replay_size=int(1e6), gamma=0.99, 
          polyak=0.995, pi_lr=1e-3, q_lr=1e-3, batch_size=100, start_steps=10000, 
-         act_noise=0.1, max_ep_len=1000, logger_kwargs=dict(), save_freq=1):
+         act_noise=0.1, max_ep_len=1000, logger_kwargs=dict(), save_freq=1, endTrainValue=None, saveModelStep=None,
+         saveCheckpointEpochStep=None):
     """
 
     Args:
@@ -112,6 +114,16 @@ def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         save_freq (int): How often (in terms of gap between epochs) to save
             the current policy and value function.
 
+        endTrainValue (int) : Argument I added to DDPG that stops the training and saves the model.
+            This argument is useful because instead of giving the model a fixed number of epochs
+            to train with, we stop training after we the model reaches a certain level of proficiency.
+            That way we don't waste time and computational power doing unnecessary training.
+
+        saveModelStep (int) : Argument I added to DDPG that saves the model weights and parameters periodically
+            after a given number of epochs. The problem with spinningup DDPG currently is that the model
+            is only saved after finishing all epochs. This means that if we do CTRL+C to stop the training it won't
+            save the model. This solves that problem.
+
     """
 
     logger = EpochLogger(**logger_kwargs)
@@ -130,8 +142,10 @@ def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     # Share information about action space with policy architecture
     ac_kwargs['action_space'] = env.action_space
 
+
     # Inputs to computation graph
     x_ph, a_ph, x2_ph, r_ph, d_ph = core.placeholders(obs_dim, act_dim, obs_dim, None, None)
+
 
     # Main outputs from computation graph
     with tf.variable_scope('main'):
@@ -163,6 +177,7 @@ def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     train_pi_op = pi_optimizer.minimize(pi_loss, var_list=get_vars('main/pi'))
     train_q_op = q_optimizer.minimize(q_loss, var_list=get_vars('main/q'))
 
+
     # Polyak averaging for target variables
     target_update = tf.group([tf.assign(v_targ, polyak*v_targ + (1-polyak)*v_main)
                               for v_main, v_targ in zip(get_vars('main'), get_vars('target'))])
@@ -176,7 +191,18 @@ def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     sess.run(target_init)
 
     # Setup model saving
-    logger.setup_tf_saver(sess, inputs={'x': x_ph, 'a': a_ph}, outputs={'pi': pi, 'q': q})
+    logger.setup_tf_saver(sess, inputs={'x': x_ph, 'a': a_ph}, outputs={'pi': pi, 'q': q, 'q_pi': q_pi, 'pi_targ': pi_targ, 'q_pi_targ': q_pi_targ})
+
+    # Load checkpoint for retraining
+    saver = tf.train.Saver(max_to_keep=None)
+    checkpoint = tf.train.get_checkpoint_state(logger_kwargs['output_dir'] + '/')
+    print('checkpoint:', checkpoint)
+    if checkpoint and checkpoint.model_checkpoint_path:
+        saver.restore(sess, checkpoint.model_checkpoint_path)
+        print("Successfully loaded parameters from {}".format(checkpoint.model_checkpoint_path))
+    else:
+        print("Could not find old network weights")
+
 
     def get_action(o, noise_scale):
         a = sess.run(pi, feed_dict={x_ph: o.reshape(1,-1)})[0]
@@ -205,6 +231,10 @@ def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         from a uniform distribution for better exploration. Afterwards, 
         use the learned policy (with some noise, via act_noise). 
         """
+        # Ensures that loaded policy starts immediately
+        if checkpoint and checkpoint.model_checkpoint_path:
+            start_steps = 0
+
         if t > start_steps:
             a = get_action(o, act_noise)
         else:
@@ -252,9 +282,63 @@ def ddpg(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
             logger.store(EpRet=ep_ret, EpLen=ep_len)
             o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
 
+
         # End of epoch wrap-up
         if t > 0 and t % steps_per_epoch == 0:
             epoch = t // steps_per_epoch
+
+            
+            if epoch % saveCheckpointEpochStep == 0:
+                saver.save(sess, logger_kwargs['output_dir'] + '/')
+                print("Weights saved!")
+            #########################################################
+            ################# MY CODE HERE ##########################
+
+            # This code is to periodically save the model periodically after a set number of epochs. 
+            #   This is in case Average Epoch Returns doesn't exceed endTrainValue and we don't end up with no model.
+            if saveModelStep is not None:
+                if epoch % saveModelStep == 0:
+                    # Save model
+                    logger.save_state({'env': env}, None)
+                    print("Model saved!")
+
+            #################################################################
+            # The goal of this code is to take an argument endTrainValue that ends the training
+            #   when the average epoch return exceeds a certain number
+            # This is so that I can give it a very large epoch number but it won't train forever and will end
+            #   when it obtains a certain average epoch return
+            
+            # If Average Epoch Returns > endTrainValue: Save and end training
+            if endTrainValue is not None:
+                if ep_ret_tuple[0] > endTrainValue:
+                    # Save model
+                    logger.save_state({'env': env}, None)
+                    print("Model saved!")
+
+                    # Test the performance of the deterministic version of the agent.
+                    test_agent()
+
+                    # Log info about epoch
+                    logger.log_tabular('Epoch', epoch)
+                    logger.log_tabular('EpRet', with_min_and_max=True)
+                    logger.log_tabular('TestEpRet', with_min_and_max=True)
+                    logger.log_tabular('EpLen', average_only=True)
+                    logger.log_tabular('TestEpLen', average_only=True)
+                    logger.log_tabular('TotalEnvInteracts', t)
+                    logger.log_tabular('QVals', with_min_and_max=True)
+                    logger.log_tabular('LossPi', average_only=True)
+                    logger.log_tabular('LossQ', average_only=True)
+                    logger.log_tabular('Time', time.time()-start_time)
+                    logger.dump_tabular()
+
+
+                    print('Training ended with endTrainValue: {0}'.format(ep_ret_tuple[0]))
+
+                    break;
+
+            ################# END OF MY CODE ########################
+            #########################################################
+
 
             # Save model
             if (epoch % save_freq == 0) or (epoch == epochs-1):

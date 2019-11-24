@@ -154,6 +154,9 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
 
     # Action limit for clamping: critically, assumes all dimensions share the same bound!
     act_limit = env.action_space.high[0]
+    
+    # I added this part in
+    act_limit_low = env.action_space.low[0]
 
     # Share information about action space with policy architecture
     ac_kwargs['action_space'] = env.action_space
@@ -175,7 +178,7 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         #                     #
         #######################
         # pi, q1, q2, q1_pi = 
-        pass
+        pi, q1, q2, q1_pi = actor_critic(x_ph, a_ph, **ac_kwargs)
     
     # Target policy network
     with tf.variable_scope('target'):
@@ -185,7 +188,7 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         #                     #
         #######################
         # pi_targ =
-        pass
+        pi_targ, q1_targ, q2_targ, q1_pi_targ = actor_critic(x2_ph, a_ph, **ac_kwargs)
     
     # Target Q networks
     with tf.variable_scope('target', reuse=True):
@@ -196,6 +199,9 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         #   YOUR CODE HERE    #
         #                     #
         #######################
+        clipped_noise = target_noise*tf.clip_by_value(tf.random.normal(shape=[act_dim]), -noise_clip, noise_clip)
+        a_targ = tf.clip_by_value(pi_targ+clipped_noise, act_limit_low, act_limit)
+        
 
         # Target Q-values, using action from smoothed target policy
         #######################
@@ -203,7 +209,7 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
         #   YOUR CODE HERE    #
         #                     #
         #######################
-        pass
+        _, q1_value_targ, q2_value_targ,_ = actor_critic(x2_ph, a_targ, **ac_kwargs)
 
     # Experience buffer
     replay_buffer = ReplayBuffer(obs_dim=obs_dim, act_dim=act_dim, size=replay_size)
@@ -218,6 +224,7 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     #   YOUR CODE HERE    #
     #                     #
     #######################
+    backup = tf.stop_gradient(r_ph + gamma*(1-d_ph)*tf.math.minimum(q1_value_targ, q2_value_targ))
 
     # TD3 losses
     #######################
@@ -225,10 +232,10 @@ def td3(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=0,
     #   YOUR CODE HERE    #
     #                     #
     #######################
-    # pi_loss = 
-    # q1_loss = 
-    # q2_loss = 
-    # q_loss = 
+    pi_loss = -tf.reduce_mean(q1_pi)
+    q1_loss = tf.reduce_mean((q1-backup)**2)
+    q2_loss = tf.reduce_mean((q2-backup)**2)
+    q_loss = q1_loss + q2_loss
 
     #=========================================================================#
     #                                                                         #
