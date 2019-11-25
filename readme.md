@@ -1,7 +1,7 @@
 **Status:** Active (under active development, breaking changes may occur)
 
 # Intro
-- I forked openAI's spinningup library and changed some of the code:
+I forked openAI's spinningup library and changed some of the code:
 1. Enabled saving and restoring tensorflow checkpoints and computation graphs
 2. Modified ExperimentGrid in "Gym" folder to practice with the different gym environments provided by OpenAI
 
